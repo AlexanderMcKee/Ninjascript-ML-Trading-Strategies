@@ -37,8 +37,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				UseChopFilter				= true;
 
 				// --- Session Times (Pacific Time) ---
-				StartTime					= new TimeSpan(15, 05, 0); // 3:05 PM PT
-				EndTime						= new TimeSpan(12, 58, 0); // 12:58 PM PT
+				StartTime					= new TimeSpan(15, 0, 10); // 3:00:10 PM PT
+				EndTime						= new TimeSpan(12, 59, 0); // 12:59:00 PM PT
 			}
 			else if (State == State.DataLoaded)
 			{
