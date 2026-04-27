@@ -1,0 +1,137 @@
+#region Using declarations
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.NinjaScript.Indicators;
+#endregion
+
+namespace NinjaTrader.NinjaScript.Strategies
+{
+	public class ML_Adaptive_ChopFilter_Apex : Strategy
+	{
+		private ATR atr;
+		private double ST;
+		private int direction = 1;
+		private List<double> volHistory = new List<double>();
+		
+		protected override void OnStateChange()
+		{
+			if (State == State.SetDefaults)
+			{
+				Description					= "ML Adaptive SuperTrend - Chop Filter Edition (Apex 25k)";
+				Name						= "ML_Adaptive_ChopFilter_Apex";
+				Calculate					= Calculate.OnBarClose;
+				EntriesPerDirection			= 1;
+				
+				// Settings from your screenshot & code
+				AtrLen						= 10;
+				Factor						= 2.5;
+				TrainingPeriod				= 100;
+				LockInVal					= 45.0;  // $450 ES scaled to $45 MES
+				TrailMult					= 1.4;
+				UseChopFilter				= true;
+			}
+			else if (State == State.DataLoaded)
+			{
+				atr = ATR(AtrLen);
+			}
+		}
+
+		protected override void OnBarUpdate()
+		{
+			if (CurrentBar < TrainingPeriod) return;
+
+			// --- ML Volatility Clustering (K-Means) ---
+			double currentVol = atr[0];
+			volHistory.Clear();
+			for (int i = 0; i < TrainingPeriod; i++) volHistory.Add(atr[i]);
+
+			double maxVol = volHistory.Max();
+			double minVol = volHistory.Min();
+
+			// Initial Centroids
+			double aMean = minVol + (maxVol - minVol) * 0.75;
+			double bMean = minVol + (maxVol - minVol) * 0.50;
+			double cMean = minVol + (maxVol - minVol) * 0.25;
+
+			// Cluster Assignment
+			double d1 = Math.Abs(currentVol - aMean);
+			double d2 = Math.Abs(currentVol - bMean);
+			double d3 = Math.Abs(currentVol - cMean);
+
+			int bestCluster = 0;
+			double assignedCentroid = aMean;
+
+			if (d2 < d1 && d2 < d3) { bestCluster = 1; assignedCentroid = bMean; }
+			else if (d3 < d1 && d3 < d2) { bestCluster = 2; assignedCentroid = cMean; }
+
+			// --- Adaptive SuperTrend Logic ---
+			double midPrice = (High[0] + Low[0]) / 2;
+			double currentFactorAtr = Factor * assignedCentroid;
+
+			if (Close[0] > ST) direction = -1;
+			else if (Close[0] < ST) direction = 1;
+			
+			ST = (direction == -1) ? midPrice - currentFactorAtr : midPrice + currentFactorAtr;
+
+			// --- Execution Logic ---
+			bool bullSig = (Close[1] <= ST && Close[0] > ST);
+			bool bearSig = (Close[1] >= ST && Close[0] < ST);
+			bool volOk = !UseChopFilter || bestCluster != 2;
+
+			if (bullSig && volOk)
+				EnterLong(1, "Long");
+
+			if (bearSig && volOk)
+				EnterShort(1, "Short");
+
+			// --- Profit Guard Trailing Exit ---
+			if (Position.MarketPosition != MarketPosition.Flat)
+			{
+				double pnl = Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency, Close[0]);
+				
+				if (pnl > LockInVal)
+				{
+					// Using ATR(14) for the trail as per your Pine code
+					double trailAmt = ATR(14)[0] * TrailMult;
+					
+					if (Position.MarketPosition == MarketPosition.Long)
+						ExitLongStopMarket(0, true, Position.Quantity, Close[0] - trailAmt, "Guard", "Long");
+					else
+						ExitShortStopMarket(0, true, Position.Quantity, Close[0] + trailAmt, "Guard", "Short");
+				}
+			}
+		}
+
+		#region Properties
+		[NinjaScriptProperty]
+		[Display(Name="ATR Length", GroupName="SuperTrend Settings", Order=0)]
+		public int AtrLen { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="SuperTrend Factor", GroupName="SuperTrend Settings", Order=1)]
+		public double Factor { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Training Data Length", GroupName="K-Means Settings", Order=2)]
+		public int TrainingPeriod { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Profit Threshold ($)", GroupName="Risk Management", Order=3)]
+		public double LockInVal { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Trail Multiplier", GroupName="Risk Management", Order=4)]
+		public double TrailMult { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Use Chop Filter", GroupName="Risk Management", Order=5)]
+		public bool UseChopFilter { get; set; }
+		#endregion
+	}
+}
