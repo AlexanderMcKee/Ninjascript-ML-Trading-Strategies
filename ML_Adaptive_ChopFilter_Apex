@@ -8,6 +8,7 @@ using NinjaTrader.Cbi;
 using NinjaTrader.Gui;
 using NinjaTrader.NinjaScript;
 using NinjaTrader.NinjaScript.Indicators;
+using System.Windows.Media;
 #endregion
 
 namespace NinjaTrader.NinjaScript.Strategies
@@ -34,11 +35,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 				TrainingPeriod				= 100;
 				LockInVal					= 45.0;  
 				TrailMult					= 1.4;
+				BarsRequiredToTrade         = 1;
 				UseChopFilter				= true;
 
 				// --- Session Times (Pacific Time) ---
 				StartTime					= new TimeSpan(15, 0, 10); // 3:00:10 PM PT
 				EndTime						= new TimeSpan(12, 59, 0); // 12:59:00 PM PT
+				
+				// --- Plot Super Trend Lines
+				AddPlot(new Stroke(Brushes.SeaGreen, 2), PlotStyle.Line, "BullishLine");
+				AddPlot(new Stroke(Brushes.Red, 2), PlotStyle.Line, "BearishLine");
 			}
 			else if (State == State.DataLoaded)
 			{
@@ -109,6 +115,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitShortStopMarket(0, true, Position.Quantity, Close[0] + trailAmt, "Guard", "Short");
 				}
 			}
+			if (direction == -1)
+    			Values[0][0] = ST;
+			else
+    			Values[1][0] = ST;
 		}
 
 		#region Properties
