@@ -13,7 +13,7 @@ using System.Windows.Media;
 
 namespace NinjaTrader.NinjaScript.Strategies
 {
-	public class ML_Shredder_AutoPilot_Fixed : Strategy
+	public class ML_Trend_Trader : Strategy
 	{
 		private ATR atr;
 		private double ST;
@@ -24,8 +24,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 		{
 			if (State == State.SetDefaults)
 			{
-				Description					= "ML Shredder - Auto-Pilot with Apex Time Sentry (Fixed)";
-				Name						= "ML_Shredder_AutoPilot_Fixed";
+				Description					= "ML Trend Trader - Close-Based Tightening with Apex Sentry";
+				Name						= "ML_Trend_Trader";
 				Calculate					= Calculate.OnBarClose;
 				EntriesPerDirection			= 1;
 				
@@ -85,11 +85,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 			int bestCluster = (d2 < d1 && d2 < d3) ? 1 : (d3 < d1 && d3 < d2 ? 2 : 0);
 			double assignedCentroid = (bestCluster == 1) ? bMean : (bestCluster == 2 ? cMean : aMean);
 
-			// --- 3. SuperTrend Logic ---
-			double midPrice = (High[0] + Low[0]) / 2;
+			// --- 3. SuperTrend Logic (TIGHTENED) ---
+			double refPrice = Close[0]; 
+			
 			if (Close[0] > ST) direction = -1;
 			else if (Close[0] < ST) direction = 1;
-			ST = (direction == -1) ? midPrice - (Factor * assignedCentroid) : midPrice + (Factor * assignedCentroid);
+			
+			ST = (direction == -1) ? refPrice - (Factor * assignedCentroid) : refPrice + (Factor * assignedCentroid);
 
 			// --- 4. Execution ---
 			bool bullSig = (Close[1] <= ST && Close[0] > ST);
@@ -115,6 +117,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitShortStopMarket(0, true, Position.Quantity, Close[0] + trailAmt, "Guard", "Short");
 				}
 			}
+			
 			if (direction == -1)
     			Values[0][0] = ST;
 			else
