@@ -36,6 +36,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				LockInVal					= 45.0;  
 				TrailMult					= 1.4;
 				BarsRequiredToTrade         = 1;
+				MyQuantity = 2;    // 2 micros
+   				MyStopTicks = 40;  // 40-tick ($200)
 				UseChopFilter				= true;
 
 				// --- Session Times (Pacific Time) ---
@@ -98,10 +100,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 			bool bearSig = (Close[1] >= ST && Close[0] < ST);
 			bool volOk = !UseChopFilter || bestCluster != 2;
 
+			// Use the menu settings for entry and stop loss
+			SetStopLoss(CalculationMode.Ticks, MyStopTicks);
+
 			if (isAllowedToTrade && volOk)
 			{
-				if (bullSig) EnterLong(1, "Long");
-				if (bearSig) EnterShort(1, "Short");
+				if (bullSig) EnterLong(MyQuantity, "Long");
+				if (bearSig) EnterShort(MyQuantity, "Short");
 			}
 
 			// --- 5. Profit Guard ---
@@ -157,5 +162,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Display(Name="Apex Close (PT)", GroupName="4. Session")]
 		public TimeSpan EndTime { get; set; }
 		#endregion
+
+		[NinjaScriptProperty]
+		[Range(1, 20)]
+		[Display(Name="Position Size", Description="Number of micros to trade", Order=1, GroupName="3. Risk")]
+		public int MyQuantity { get; set; }
+		
+		[NinjaScriptProperty]
+		[Range(5, 200)]
+		[Display(Name="Hard Stop (Ticks)", Description="Emergency stop in ticks", Order=2, GroupName="3. Risk")]
+		public int MyStopTicks { get; set; }
 	}
 }
