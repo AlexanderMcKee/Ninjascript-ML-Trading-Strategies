@@ -103,7 +103,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (isAllowedToTrade && volOk)
 			{
 				if (bullSig) EnterLong(MyQuantity, "Long");
-				if (bearSig) EnterShort(MyQuantity, "Short");
+				//if (bearSig) EnterShort(MyQuantity, "Short");
 			}
 
 			// 5. Integrated Exit Management (Hard Stop + Profit Guard)
