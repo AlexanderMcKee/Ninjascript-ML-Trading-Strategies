@@ -100,27 +100,37 @@ namespace NinjaTrader.NinjaScript.Strategies
 			bool bearSig = (Close[1] >= ST && Close[0] < ST);
 			bool volOk = !UseChopFilter || bestCluster != 2;
 
-			// Use the menu settings for entry and stop loss
-			SetStopLoss(CalculationMode.Ticks, MyStopTicks);
-
 			if (isAllowedToTrade && volOk)
 			{
 				if (bullSig) EnterLong(MyQuantity, "Long");
 				if (bearSig) EnterShort(MyQuantity, "Short");
 			}
 
-			// --- 5. Profit Guard ---
+			// 5. Integrated Exit Management (Hard Stop + Profit Guard)
 			if (Position.MarketPosition != MarketPosition.Flat)
 			{
-				double pnl = Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency, Close[0]);
-				if (pnl > LockInVal)
-				{
-					double trailAmt = ATR(14)[0] * TrailMult;
-					if (Position.MarketPosition == MarketPosition.Long)
-						ExitLongStopMarket(0, true, Position.Quantity, Close[0] - trailAmt, "Guard", "Long");
-					else
-						ExitShortStopMarket(0, true, Position.Quantity, Close[0] + trailAmt, "Guard", "Short");
-				}
+			    double pnl = Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency, Close[0]);
+			    
+			    if (Position.MarketPosition == MarketPosition.Long)
+			    {
+			        // Calculate the Hard Stop Price based on your UI input
+			        double hardStopPrice = Position.AveragePrice - (MyStopTicks * TickSize);
+			        double trailPrice = Close[0] - (ATR(14)[0] * TrailMult);
+			        
+			        // If in profit, use the higher of the hard stop or the trail. Otherwise, use hard stop.
+			        double activeExit = (pnl >= LockInVal) ? Math.Max(hardStopPrice, trailPrice) : hardStopPrice;
+			        
+			        ExitLongStopMarket(0, true, Position.Quantity, activeExit, "RiskSentry", "Long");
+			    }
+			    else // Short Side
+			    {
+			        double hardStopPrice = Position.AveragePrice + (MyStopTicks * TickSize);
+			        double trailPrice = Close[0] + (ATR(14)[0] * TrailMult);
+			        
+			        double activeExit = (pnl >= LockInVal) ? Math.Min(hardStopPrice, trailPrice) : hardStopPrice;
+			        
+			        ExitShortStopMarket(0, true, Position.Quantity, activeExit, "RiskSentry", "Short");
+			    }
 			}
 			
 			if (direction == -1)
