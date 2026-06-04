@@ -40,6 +40,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 HighVolPct = 0.75;
                 MidVolPct = 0.5;
                 LowVolPct = 0.25;
+                ProfitTargetTicks = 75;
+                TrailStopTicks = 35;
 
                 AddPlot(new Stroke(Brushes.SeaGreen, 2), PlotStyle.Line, "SuperTrendPlot");
             }
@@ -49,6 +51,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 stSeries = new Series<double>(this);
                 lockedLower = new Series<double>(this);
                 lockedUpper = new Series<double>(this);
+            }
+            else if (State == State.Configure)
+            {
+                SetProfitTarget(CalculationMode.Ticks, ProfitTargetTicks);
+                SetTrailStop(CalculationMode.Ticks, TrailStopTicks);
             }
         }
 
@@ -180,6 +187,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty]
         [Display(Name="Low Vol %", GroupName="2. ML Clustering")]
         public double LowVolPct { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Profit Target (ticks)", GroupName="3. Risk Management")]
+        public int ProfitTargetTicks { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Trail Stop (ticks)", GroupName="3. Risk Management")]
+        public int TrailStopTicks { get; set; }
         #endregion
     }
 }
