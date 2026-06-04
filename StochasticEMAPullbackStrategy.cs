@@ -19,7 +19,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private EMA ema21;
         private EMA ema34;
         private EMA ema144;
-        private Stochastic stochastic;
+        private Stochastics stochastic;
 
         // State tracking
         private bool trendLongConfirmed = false;  // Price and EMAs above 144 EMA
@@ -69,8 +69,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ema144 = EMA(Close, EMA144Length);
                 AddChartIndicator(ema144);
 
-                // Stochastic with custom K/D smoothing
-                stochastic = Stochastic(Close, StochasticKPeriod, StochasticKSmoothing, StochasticDSmoothing);
+                // Initialize Stochastic: periodD, periodK, smooth
+                stochastic = Stochastics(StochasticDSmoothing, StochasticKPeriod, StochasticKSmoothing);
                 AddChartIndicator(stochastic);
             }
             else if (State == State.Configure)
@@ -90,18 +90,19 @@ namespace NinjaTrader.NinjaScript.Strategies
             double ema21Val = ema21[0];
             double ema34Val = ema34[0];
             double ema144Val = ema144[0];
-            double stochK = stochastic.StochK[0];
-            double stochD = stochastic.StochD[0];
-            double prevStochK = stochastic.StochK[1];
-            double prevStochD = stochastic.StochD[1];
+            double stochK = stochastic.K[0];
+            double stochD = stochastic.D[0];
+            double prevStochK = stochastic.K[1];
+            double prevStochD = stochastic.D[1];
 
             // Exit any existing position before checking new signals
             if (Position.MarketPosition != MarketPosition.Flat)
                 return;
 
             // ===== LONG SIGNAL LOGIC =====
-            // Step 1: Determine if uptrend is established (144 EMA as trend filter)
-            if (close > ema144Val && ema21Val > ema144Val && ema34Val > ema144Val)
+            // Step 1: Determine if uptrend is established (144 EMA as trend filter + EMA stacking)
+            // Price above 144, and 21 > 34 > 144 (proper stacking)
+            if (close > ema144Val && ema21Val > ema34Val && ema34Val > ema144Val)
             {
                 trendLongConfirmed = true;
                 trendShortConfirmed = false;
@@ -113,7 +114,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 waitingForShortEntry = false;
             }
             // Step 3: Enter long when K% crosses back above D% while still below 20
-            else if (waitingForLongEntry && stochK < 20 && prevStochK < stochD && stochK > stochD)
+            else if (waitingForLongEntry && stochK < 20 && prevStochK < prevStochD && stochK > stochD)
             {
                 EnterLong("LongEntry");
                 trendLongConfirmed = false;
@@ -121,8 +122,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // ===== SHORT SIGNAL LOGIC =====
-            // Step 1: Determine if downtrend is established (144 EMA as trend filter)
-            if (close < ema144Val && ema21Val < ema144Val && ema34Val < ema144Val)
+            // Step 1: Determine if downtrend is established (144 EMA as trend filter + EMA stacking)
+            // Price below 144, and 21 < 34 < 144 (proper stacking)
+            if (close < ema144Val && ema21Val < ema34Val && ema34Val < ema144Val)
             {
                 trendShortConfirmed = true;
                 trendLongConfirmed = false;
@@ -134,7 +136,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 waitingForLongEntry = false;
             }
             // Step 3: Enter short when K% crosses back below D% while still above 80
-            else if (waitingForShortEntry && stochK > 80 && prevStochK > stochD && stochK < stochD)
+            else if (waitingForShortEntry && stochK > 80 && prevStochK > prevStochD && stochK < stochD)
             {
                 EnterShort("ShortEntry");
                 trendShortConfirmed = false;
