@@ -1,147 +1,166 @@
+#region Using declarations
 using System;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
 using NinjaTrader.NinjaScript;
 using NinjaTrader.NinjaScript.Indicators;
-using NinjaTrader.NinjaScript.Strategies;
+using System.Windows.Media;
+#endregion
 
 namespace NinjaTrader.NinjaScript.Strategies
 {
     public class SimpleEMAStrat : Strategy
     {
-        private EMA ema50;
-        private ATR atr;
+        // Indicators
+        private EMA ema21;
+        private EMA ema34;
+        private EMA ema144;
 
-        private string lockDirection = "";
-        private int lastTradeBar = -1;
-
-        // ✅ Session times (Pacific Time)
-        private TimeSpan StartTime = new TimeSpan(15, 0, 10);
-        private TimeSpan EndTime   = new TimeSpan(12, 59, 0);
+        // State tracking
+        private bool trendLongConfirmed = false;  // EMA stack: 21 > 34 > 144
+        private bool trendShortConfirmed = false; // EMA stack: 21 < 34 < 144
 
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
             {
+                Description = "Simple EMA Stacking Strategy - Trend following with crossover entries";
                 Name = "SimpleEMAStrat";
-                Description = "EMA intrabar strategy with flip logic, chop filter, and session control.";
-
+                
+                // Set to Calculate.OnEachTick for instant trading execution
                 Calculate = Calculate.OnEachTick;
-
                 EntriesPerDirection = 1;
-                EntryHandling = EntryHandling.UniqueEntries;
-                BarsRequiredToTrade = 50;
+                EntryHandling = EntryHandling.AllEntries;
 
-                IsExitOnSessionCloseStrategy = true;
-                ExitOnSessionCloseSeconds = 30;
-            }
-            else if (State == State.Configure)
-            {
-                // ✅ Profit + trailing
-                SetProfitTarget("LongEMA", CalculationMode.Ticks, 80);
-                SetProfitTarget("ShortEMA", CalculationMode.Ticks, 80);
+                // EMA Inputs
+                EMA21Length = 21;
+                EMA34Length = 34;
+                EMA144Length = 144;
 
-                SetTrailStop("LongEMA", CalculationMode.Ticks, 55, false);
-                SetTrailStop("ShortEMA", CalculationMode.Ticks, 55, false);
+                // Risk Management
+                ProfitTargetTicks = 300;
+                FollowingStopLossTicks = 90;
+
+                AddPlot(new Stroke(Brushes.White, 2), PlotStyle.Line, "EMA21");
+                AddPlot(new Stroke(Brushes.Orange, 2), PlotStyle.Line, "EMA34");
+                AddPlot(new Stroke(Brushes.Green, 2), PlotStyle.Line, "EMA144");
             }
             else if (State == State.DataLoaded)
             {
-                ema50 = EMA(50);
-                atr   = ATR(14);
+                // Initialize indicators
+                ema21 = EMA(Close, EMA21Length);
+                AddChartIndicator(ema21);
 
-                AddChartIndicator(ema50);
-                AddChartIndicator(atr);
+                ema34 = EMA(Close, EMA34Length);
+                AddChartIndicator(ema34);
+
+                ema144 = EMA(Close, EMA144Length);
+                AddChartIndicator(ema144);
+            }
+            else if (State == State.Configure)
+            {
+                SetProfitTarget(CalculationMode.Ticks, ProfitTargetTicks);
+                SetTrailStop(CalculationMode.Ticks, FollowingStopLossTicks);
             }
         }
 
         protected override void OnBarUpdate()
         {
-            if (CurrentBar < BarsRequiredToTrade)
+            // Wait for sufficient data
+            if (CurrentBar < EMA144Length)
                 return;
 
-            // ✅ SESSION FILTER
-            TimeSpan now = Time[0].TimeOfDay;
+            double close = Close[0];
+            double ema21Val = ema21[0];
+            double ema34Val = ema34[0];
+            double ema144Val = ema144[0];
+            
+            double prevEMA21 = ema21[1];
+            double prevEMA34 = ema34[1];
+            double prevEMA144 = ema144[1];
 
-            bool isAllowedToTrade = (StartTime > EndTime)
-                ? (now >= StartTime || now <= EndTime)
-                : (now >= StartTime && now <= EndTime);
-
-            if (!isAllowedToTrade)
-                return;
-
-            double buffer = 2 * TickSize;
-
-            // ✅ SLOPE (4 bars like you wanted)
-            double slope = ema50[0] - ema50[4];
-            double minSlope = 5 * TickSize;
-
-            // ✅ ATR FILTER
-            double minATR = 8 * TickSize;
-
-            // ✅ ENTRY LOGIC
-            if (Position.MarketPosition == MarketPosition.Flat
-                && CurrentBar != lastTradeBar)
+            // ===== LONG SIGNAL LOGIC =====
+            // Detect uptrend: 21 crosses above 34, and 34 crosses above 144
+            bool ema21CrossedAbove34 = prevEMA21 <= prevEMA34 && ema21Val > ema34Val;
+            bool ema34CrossedAbove144 = prevEMA34 <= prevEMA144 && ema34Val > ema144Val;
+            
+            if (ema21CrossedAbove34 || ema34CrossedAbove144)
             {
-                // ✅ LONG
-                if (Close[0] > ema50[0] + buffer
-                    && slope > minSlope
-                    && atr[0] > minATR
-                    && lockDirection != "Long")
+                trendLongConfirmed = true;
+                trendShortConfirmed = false;
+            }
+            // Entry: All EMAs now properly stacked (21 > 34 > 144)
+            if (trendLongConfirmed && ema21Val > ema34Val && ema34Val > ema144Val)
+            {
+                // Close short position if one exists, then enter long
+                if (Position.MarketPosition == MarketPosition.Short)
                 {
-                    EnterLong("LongEMA");
-                    lastTradeBar = CurrentBar;
+                    ExitShort();
                 }
-
-                // ✅ SHORT
-                else if (Close[0] < ema50[0] - buffer
-                         && slope < -minSlope
-                         && atr[0] > minATR
-                         && lockDirection != "Short")
+                
+                // Enter long if flat or after exiting short
+                if (Position.MarketPosition == MarketPosition.Flat)
                 {
-                    EnterShort("ShortEMA");
-                    lastTradeBar = CurrentBar;
+                    EnterLong("LongEntry");
+                    trendLongConfirmed = false;
                 }
             }
 
-            // ✅ EMA EXIT (does NOT affect lock logic)
-            if (Position.MarketPosition == MarketPosition.Long &&
-                Close[0] < ema50[0])
+            // ===== SHORT SIGNAL LOGIC =====
+            // Detect downtrend: 21 crosses below 34, and 34 crosses below 144
+            bool ema21CrossedBelow34 = prevEMA21 >= prevEMA34 && ema21Val < ema34Val;
+            bool ema34CrossedBelow144 = prevEMA34 >= prevEMA144 && ema34Val < ema144Val;
+            
+            if (ema21CrossedBelow34 || ema34CrossedBelow144)
             {
-                ExitLong("ExitLongEMA", "LongEMA");
+                trendShortConfirmed = true;
+                trendLongConfirmed = false;
             }
-            else if (Position.MarketPosition == MarketPosition.Short &&
-                     Close[0] > ema50[0])
+            // Entry: All EMAs now properly stacked (21 < 34 < 144)
+            if (trendShortConfirmed && ema21Val < ema34Val && ema34Val < ema144Val)
             {
-                ExitShort("ExitShortEMA", "ShortEMA");
+                // Close long position if one exists, then enter short
+                if (Position.MarketPosition == MarketPosition.Long)
+                {
+                    ExitLong();
+                }
+                
+                // Enter short if flat or after exiting long
+                if (Position.MarketPosition == MarketPosition.Flat)
+                {
+                    EnterShort("ShortEntry");
+                    trendShortConfirmed = false;
+                }
             }
+
+            // Plot EMA values for visual confirmation
+            Values[0][0] = ema21Val;
+            Values[1][0] = ema34Val;
+            Values[2][0] = ema144Val;
         }
 
-        protected override void OnExecutionUpdate(
-            Execution execution,
-            string executionId,
-            double price,
-            int quantity,
-            MarketPosition marketPosition,
-            string orderId,
-            DateTime time)
-        {
-            if (execution.Order == null)
-                return;
+        #region Properties
+        [NinjaScriptProperty]
+        [Display(Name = "EMA 21 Length", GroupName = "1. EMA Settings")]
+        public int EMA21Length { get; set; }
 
-            if (execution.Order.OrderState != OrderState.Filled)
-                return;
+        [NinjaScriptProperty]
+        [Display(Name = "EMA 34 Length", GroupName = "1. EMA Settings")]
+        public int EMA34Length { get; set; }
 
-            // ✅ LOCK AFTER ANY EXIT (profit or stop)
-            if (execution.Order.FromEntrySignal == "LongEMA" &&
-                execution.Order.OrderAction == OrderAction.Sell)
-            {
-                lockDirection = "Long";
-            }
+        [NinjaScriptProperty]
+        [Display(Name = "EMA 144 Length", GroupName = "1. EMA Settings")]
+        public int EMA144Length { get; set; }
 
-            if (execution.Order.FromEntrySignal == "ShortEMA" &&
-                execution.Order.OrderAction == OrderAction.BuyToCover)
-            {
-                lockDirection = "Short";
-            }
-        }
+        [NinjaScriptProperty]
+        [Display(Name = "Profit Target (ticks)", GroupName = "2. Risk Management")]
+        public int ProfitTargetTicks { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Following Stop Loss (ticks)", GroupName = "2. Risk Management")]
+        public int FollowingStopLossTicks { get; set; }
+        #endregion
     }
 }
