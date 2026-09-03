@@ -21,6 +21,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         // State tracking
         private bool trendLongConfirmed = false;  // EMA stack: 21 > 34 > 144
         private bool trendShortConfirmed = false; // EMA stack: 21 < 34 < 144
+        // Re-entry block after hitting profit target
+        private double lastEntryPrice = 0;
+        private MarketPosition prevMarketPosition = MarketPosition.Flat;
+        private int blockCounter = 0; // >0 means re-entry blocked for this many bars
 
         protected override void OnStateChange()
         {
@@ -40,8 +44,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 EMA144Length = 144;
 
                 // Risk Management
-                ProfitTargetTicks = 300;
-                FollowingStopLossTicks = 90;
+                    ProfitTargetTicks = 50;
+                FollowingStopLossTicks = 30;
 
                 AddPlot(new Stroke(Brushes.White, 2), PlotStyle.Line, "EMA21");
                 AddPlot(new Stroke(Brushes.Orange, 2), PlotStyle.Line, "EMA34");
@@ -58,6 +62,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ema144 = EMA(Close, EMA144Length);
                 AddChartIndicator(ema144);
+                
+                // Initialize defaults for new properties
+                BlockAfterProfitBars = 10;
             }
             else if (State == State.Configure)
             {
@@ -71,6 +78,31 @@ namespace NinjaTrader.NinjaScript.Strategies
             // Wait for sufficient data
             if (CurrentBar < EMA144Length)
                 return;
+
+            // Decrement block counter (use blockCounter>0 as the single blocker)
+            if (blockCounter > 0)
+                blockCounter -= 1;
+
+            // Position transitions: capture entries and detect exits that hit profit target
+            if (prevMarketPosition == MarketPosition.Flat && Position.MarketPosition != MarketPosition.Flat)
+            {
+                // just entered a position
+                lastEntryPrice = Position.AveragePrice;
+            }
+            else if (prevMarketPosition != MarketPosition.Flat && Position.MarketPosition == MarketPosition.Flat)
+            {
+                // just exited a position — check if exit met profit target
+                double exitPrice = Close[0];
+                double profitTicks = prevMarketPosition == MarketPosition.Long
+                    ? Math.Round((exitPrice - lastEntryPrice) / TickSize)
+                    : Math.Round((lastEntryPrice - exitPrice) / TickSize);
+
+                if (profitTicks >= ProfitTargetTicks)
+                    blockCounter = BlockAfterProfitBars;
+            }
+
+            // update previous position tracker
+            prevMarketPosition = Position.MarketPosition;
 
             double close = Close[0];
             double ema21Val = ema21[0];
@@ -101,7 +133,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 
                 // Enter long if flat or after exiting short
-                if (Position.MarketPosition == MarketPosition.Flat)
+                if (Position.MarketPosition == MarketPosition.Flat && blockCounter == 0)
                 {
                     EnterLong("LongEntry");
                     trendLongConfirmed = false;
@@ -128,7 +160,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 
                 // Enter short if flat or after exiting long
-                if (Position.MarketPosition == MarketPosition.Flat)
+                if (Position.MarketPosition == MarketPosition.Flat && blockCounter == 0)
                 {
                     EnterShort("ShortEntry");
                     trendShortConfirmed = false;
@@ -161,6 +193,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty]
         [Display(Name = "Following Stop Loss (ticks)", GroupName = "2. Risk Management")]
         public int FollowingStopLossTicks { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Block After Profit Bars", GroupName = "2. Risk Management")]
+        public int BlockAfterProfitBars { get; set; }
         #endregion
     }
 }
