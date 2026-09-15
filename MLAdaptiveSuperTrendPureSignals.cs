@@ -32,6 +32,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Calculate = Calculate.OnBarClose; 
                 EntriesPerDirection = 1;
                 EntryHandling = EntryHandling.AllEntries;
+                ExitOnSessionCloseSeconds = 180;
 
                 // --- Original Indicator Inputs ---
                 AtrLen = 10;
@@ -40,8 +41,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 HighVolPct = 0.75;
                 MidVolPct = 0.5;
                 LowVolPct = 0.25;
-                ProfitTargetTicks = 75;
-                TrailStopTicks = 35;
+                ProfitTargetTicks = 83;
+                TrailStopTicks = 125;
 
                 AddPlot(new Stroke(Brushes.SeaGreen, 2), PlotStyle.Line, "SuperTrendPlot");
             }

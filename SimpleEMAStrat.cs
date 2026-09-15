@@ -17,14 +17,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         private EMA ema21;
         private EMA ema34;
         private EMA ema144;
+        private ADX adx;
 
         // State tracking
         private bool trendLongConfirmed = false;  // EMA stack: 21 > 34 > 144
         private bool trendShortConfirmed = false; // EMA stack: 21 < 34 < 144
-        // Re-entry block after hitting profit target
-        private double lastEntryPrice = 0;
-        private MarketPosition prevMarketPosition = MarketPosition.Flat;
-        private int blockCounter = 0; // >0 means re-entry blocked for this many bars
 
         protected override void OnStateChange()
         {
@@ -43,9 +40,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 EMA34Length = 34;
                 EMA144Length = 144;
 
+                // ADX Inputs
+                ADXLength = 14;
+                ADXThreshold = 25;
+                ADXHoldBars = 1;
+
                 // Risk Management
-                    ProfitTargetTicks = 50;
-                FollowingStopLossTicks = 30;
+                ProfitTargetTicks = 50;
+                FollowingStopLossTicks = 90;
 
                 AddPlot(new Stroke(Brushes.White, 2), PlotStyle.Line, "EMA21");
                 AddPlot(new Stroke(Brushes.Orange, 2), PlotStyle.Line, "EMA34");
@@ -62,9 +64,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ema144 = EMA(Close, EMA144Length);
                 AddChartIndicator(ema144);
-                
-                // Initialize defaults for new properties
-                BlockAfterProfitBars = 10;
+
+                // ADX
+                adx = ADX(ADXLength);
+                AddChartIndicator(adx);
             }
             else if (State == State.Configure)
             {
@@ -75,34 +78,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         protected override void OnBarUpdate()
         {
-            // Wait for sufficient data
-            if (CurrentBar < EMA144Length)
+            // Wait for sufficient data (ensure ADX warmed up too)
+            if (CurrentBar < Math.Max(EMA144Length, ADXLength))
                 return;
-
-            // Decrement block counter (use blockCounter>0 as the single blocker)
-            if (blockCounter > 0)
-                blockCounter -= 1;
-
-            // Position transitions: capture entries and detect exits that hit profit target
-            if (prevMarketPosition == MarketPosition.Flat && Position.MarketPosition != MarketPosition.Flat)
-            {
-                // just entered a position
-                lastEntryPrice = Position.AveragePrice;
-            }
-            else if (prevMarketPosition != MarketPosition.Flat && Position.MarketPosition == MarketPosition.Flat)
-            {
-                // just exited a position — check if exit met profit target
-                double exitPrice = Close[0];
-                double profitTicks = prevMarketPosition == MarketPosition.Long
-                    ? Math.Round((exitPrice - lastEntryPrice) / TickSize)
-                    : Math.Round((lastEntryPrice - exitPrice) / TickSize);
-
-                if (profitTicks >= ProfitTargetTicks)
-                    blockCounter = BlockAfterProfitBars;
-            }
-
-            // update previous position tracker
-            prevMarketPosition = Position.MarketPosition;
 
             double close = Close[0];
             double ema21Val = ema21[0];
@@ -112,6 +90,17 @@ namespace NinjaTrader.NinjaScript.Strategies
             double prevEMA21 = ema21[1];
             double prevEMA34 = ema34[1];
             double prevEMA144 = ema144[1];
+
+            // ADX gate: require ADX > threshold for ADXHoldBars bars
+            bool adxOk = true;
+            for (int i = 0; i < ADXHoldBars; i++)
+            {
+                if (adx[i] <= ADXThreshold)
+                {
+                    adxOk = false;
+                    break;
+                }
+            }
 
             // ===== LONG SIGNAL LOGIC =====
             // Detect uptrend: 21 crosses above 34, and 34 crosses above 144
@@ -124,7 +113,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 trendShortConfirmed = false;
             }
             // Entry: All EMAs now properly stacked (21 > 34 > 144)
-            if (trendLongConfirmed && ema21Val > ema34Val && ema34Val > ema144Val)
+            if (trendLongConfirmed && ema21Val > ema34Val && ema34Val > ema144Val && adxOk)
             {
                 // Close short position if one exists, then enter long
                 if (Position.MarketPosition == MarketPosition.Short)
@@ -133,7 +122,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 
                 // Enter long if flat or after exiting short
-                if (Position.MarketPosition == MarketPosition.Flat && blockCounter == 0)
+                if (Position.MarketPosition == MarketPosition.Flat)
                 {
                     EnterLong("LongEntry");
                     trendLongConfirmed = false;
@@ -151,7 +140,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 trendLongConfirmed = false;
             }
             // Entry: All EMAs now properly stacked (21 < 34 < 144)
-            if (trendShortConfirmed && ema21Val < ema34Val && ema34Val < ema144Val)
+            if (trendShortConfirmed && ema21Val < ema34Val && ema34Val < ema144Val && adxOk)
             {
                 // Close long position if one exists, then enter short
                 if (Position.MarketPosition == MarketPosition.Long)
@@ -160,7 +149,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 
                 // Enter short if flat or after exiting long
-                if (Position.MarketPosition == MarketPosition.Flat && blockCounter == 0)
+                if (Position.MarketPosition == MarketPosition.Flat)
                 {
                     EnterShort("ShortEntry");
                     trendShortConfirmed = false;
@@ -195,8 +184,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int FollowingStopLossTicks { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Block After Profit Bars", GroupName = "2. Risk Management")]
-        public int BlockAfterProfitBars { get; set; }
+        [Display(Name = "ADX Length", GroupName = "3. Filters")]
+        public int ADXLength { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "ADX Threshold", GroupName = "3. Filters")]
+        public int ADXThreshold { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "ADX Hold Bars", GroupName = "3. Filters")]
+        public int ADXHoldBars { get; set; }
         #endregion
     }
 }
