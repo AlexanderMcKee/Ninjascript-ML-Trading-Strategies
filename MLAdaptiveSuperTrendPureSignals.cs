@@ -20,6 +20,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private Series<double> lockedLower;
         private Series<double> lockedUpper;
         private int direction = 1; // 1 = Bearish, -1 = Bullish
+        private DateTime sessionReentryTime;
+        private bool sessionReentryAllowed = true;
 
         protected override void OnStateChange()
         {
@@ -35,14 +37,15 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ExitOnSessionCloseSeconds = 180;
 
                 // --- Original Indicator Inputs ---
-                AtrLen = 10;
-                Factor = 3.0;
+                AtrLen = 17;
+                Factor = 3.75;
                 TrainingPeriod = 100;
                 HighVolPct = 0.75;
                 MidVolPct = 0.5;
                 LowVolPct = 0.25;
-                ProfitTargetTicks = 83;
-                TrailStopTicks = 125;
+                ProfitTargetTicks = 300;
+                StopLossTicks = 125;
+                ReentryWaitMinutes = 1;
 
                 AddPlot(new Stroke(Brushes.SeaGreen, 2), PlotStyle.Line, "SuperTrendPlot");
             }
@@ -55,8 +58,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Configure)
             {
-                SetProfitTarget(CalculationMode.Ticks, ProfitTargetTicks);
-                SetTrailStop(CalculationMode.Ticks, TrailStopTicks);
+                SetProfitTarget("Long", CalculationMode.Ticks, ProfitTargetTicks);
+                SetProfitTarget("Short", CalculationMode.Ticks, ProfitTargetTicks);
+                SetStopLoss("Long", CalculationMode.Ticks, StopLossTicks, false);
+                SetStopLoss("Short", CalculationMode.Ticks, StopLossTicks, false);
             }
         }
 
@@ -64,6 +69,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             // Wait for sufficient data
             if (CurrentBar < TrainingPeriod) return;
+
+            if (Bars.IsFirstBarOfSession)
+            {
+                sessionReentryTime = Time[0].AddMinutes(ReentryWaitMinutes);
+                sessionReentryAllowed = false;
+            }
+
+            bool sessionReentrySignal = !sessionReentryAllowed && Time[0] >= sessionReentryTime;
+            if (sessionReentrySignal)
+                sessionReentryAllowed = true;
 
             // --- 1. ML Logic: Iterative K-Means ---
             double volatility = atr[0];
@@ -147,16 +162,32 @@ namespace NinjaTrader.NinjaScript.Strategies
             stSeries[0] = (direction == -1) ? lockedLower[0] : lockedUpper[0];
 
             // --- 3. Execution Signals (Pure Signals Translation) ---
-            // Bullish flip (Direction moves from 1 to -1)
-            if (prevDir == 1 && direction == -1)
+            // Re-enter once in the current SuperTrend direction after the session wait.
+            if (sessionReentrySignal && Position.MarketPosition == MarketPosition.Flat)
             {
-                EnterLong("Long");
+                if (direction == -1)
+                    EnterLong("Long");
+                else
+                    EnterShort("Short");
+            }
+            // Bullish flip (Direction moves from 1 to -1)
+            else if (prevDir == 1 && direction == -1)
+            {
+                if (Position.MarketPosition == MarketPosition.Short)
+                    ExitShort("SuperTrendFlipExit", "Short");
+
+                if (sessionReentryAllowed)
+                    EnterLong("Long");
             }
 
             // Bearish flip (Direction moves from -1 to 1)
-            if (prevDir == -1 && direction == 1)
+            else if (prevDir == -1 && direction == 1)
             {
-                EnterShort("Short");
+                if (Position.MarketPosition == MarketPosition.Long)
+                    ExitLong("SuperTrendFlipExit", "Long");
+
+                if (sessionReentryAllowed)
+                    EnterShort("Short");
             }
 
             // --- 4. Plotting ---
@@ -194,8 +225,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int ProfitTargetTicks { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name="Trail Stop (ticks)", GroupName="3. Risk Management")]
-        public int TrailStopTicks { get; set; }
+        [Display(Name="Stop Loss (ticks)", GroupName="3. Risk Management")]
+        public int StopLossTicks { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Re-entry Wait (minutes)", GroupName="4. Session Safety")]
+        public int ReentryWaitMinutes { get; set; }
+
         #endregion
     }
 }
