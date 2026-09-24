@@ -38,7 +38,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				BarsRequiredToTrade         = 1;
 				MyQuantity = 2;    // 2 micros
    				MyStopTicks = 40;  // 40-tick ($200)
-				UseChopFilter				= true;
+				UseChopFilter				= false;
+				MyProfitTicks = 48; // This is $60 on MES
 
 				// --- Session Times (Pacific Time) ---
 				StartTime					= new TimeSpan(15, 0, 10); // 3:00:10 PM PT
@@ -113,13 +114,23 @@ namespace NinjaTrader.NinjaScript.Strategies
 			    
 			    if (Position.MarketPosition == MarketPosition.Long)
 			    {
+					// New: Profit Target Exit
+    				ExitLongLimit(0, true, Position.Quantity, Position.AveragePrice + (MyProfitTicks * TickSize), "Target", "Long");
 			        // Calculate the Hard Stop Price based on your UI input
 			        double hardStopPrice = Position.AveragePrice - (MyStopTicks * TickSize);
 			        double trailPrice = Close[0] - (ATR(14)[0] * TrailMult);
 			        
 			        // If in profit, use the higher of the hard stop or the trail. Otherwise, use hard stop.
 			        double activeExit = (pnl >= LockInVal) ? Math.Max(hardStopPrice, trailPrice) : hardStopPrice;
-			        
+					
+					// --- The Break-Even Guard ---
+					// If we are up $30 (halfway to target), move stop to Entry + 2 ticks
+					if (pnl >= 30.0 && Position.MarketPosition == MarketPosition.Long)
+					{
+					    double breakEvenPrice = Position.AveragePrice + (2 * TickSize);
+					    activeExit = Math.Max(activeExit, breakEvenPrice);
+					}
+			     
 			        ExitLongStopMarket(0, true, Position.Quantity, activeExit, "RiskSentry", "Long");
 			    }
 			    else // Short Side
@@ -182,5 +193,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Range(5, 200)]
 		[Display(Name="Hard Stop (Ticks)", Description="Emergency stop in ticks", Order=2, GroupName="3. Risk")]
 		public int MyStopTicks { get; set; }
+		
+		[NinjaScriptProperty]
+		[Range(5, 200)]
+		[Display(Name="Profit Target (Ticks)", Description="Target for take profit", Order=3, GroupName="3. Risk")]
+		public int MyProfitTicks { get; set; }
 	}
 }
