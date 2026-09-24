@@ -36,6 +36,16 @@ The strategy is pre-tuned for the **1-Minute MES** chart, specifically for prop 
 5. **Apply to Chart:** Open a 1-Minute MES chart. Right-click > Strategies > Add `ML_Adaptive_ChopFilter_Apex`.
 6. **Configure Account:** Select your Apex/Sim account and set 'Calculate' to `OnBarClose`.
 
+## AI decision-making (jev) — `MLAdaptiveSuperTrendPureSignals.cs`
+
+`MLAdaptiveSuperTrendPureSignals.cs` is a separate strategy in this repo (not the one described above) that delegates its buy/sell/hold/flat decision to [jev](https://docs.typesafe.ai/introduction), TypeSafe's decision API, instead of the raw SuperTrend flip signal. Once past the post-session-open re-entry cooldown, it POSTs the last 20 OHLCV bars plus its own indicators (ATR, SuperTrend value/direction, volatility centroid, locked bands) and position state to `https://api.typesafe.ai/v1/systemone` each realtime bar, asks a single `choice` question (`buy` / `sell` / `hold` / `none`), and acts on the answer. The strategy's native `SetProfitTarget`/`SetStopLoss` bracket orders still attach to every entry and protect it regardless of what jev says.
+
+**Setup:**
+- Set a `TYPESAFE_API_KEY` environment variable (your TypeSafe API key) on the machine running NinjaTrader, then restart NinjaTrader so the process picks it up. The key is never hardcoded in the script or committed to this repo.
+- The NinjaScript Editor must have a reference to `Newtonsoft.Json.dll` (Tools > Edit NinjaScript > right-click the script > check References) — it's used to build/parse the jev request and response.
+- **Realtime only:** jev is called only when `State == State.Realtime`. Historical bars (Strategy Analyzer backtests, replay, optimization) skip the jev call entirely and take no trades, since a synchronous HTTP call per historical bar would be both very slow and would burn API usage for no benefit. Validate behavior in Sim/live, not the backtester.
+- If jev is unreachable, misconfigured, or times out, the strategy takes no action that bar rather than falling back to the old SuperTrend flip signal.
+
 ## Performance Characteristics
 
 Based on historical backtesting (Feb 2026 - Apr 2026):
