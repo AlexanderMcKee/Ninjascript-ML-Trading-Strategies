@@ -105,7 +105,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 else
                 {
-                    Print("[Jev] TYPESAFE_API_KEY environment variable not set — strategy will take no action until it is configured.");
+                    Print("[Jev] TYPESAFE_API_KEY environment variable not set - strategy will take no action until it is configured.");
                 }
             }
             else if (State == State.Configure)
@@ -238,7 +238,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     break;
                 case "hold":
                 default:
-                    // No action — either jev said hold, or jev was unavailable/
+                    // No action - either jev said hold, or jev was unavailable/
                     // timed out/misconfigured this bar. Existing position (if
                     // any) is left as-is; the profit target/stop loss brackets
                     // configured in State.Configure still protect it.
@@ -359,7 +359,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             catch (OperationCanceledException)
             {
-                Print(string.Format("[Jev] call timed out after {0}s — taking no action this bar.", JevTimeoutSeconds));
+                Print(string.Format("[Jev] call timed out after {0}s - taking no action this bar.", JevTimeoutSeconds));
                 return null;
             }
             catch (Exception ex)
